@@ -1,4 +1,6 @@
-python-telegram-bot==20.7
 fastapi
-uvicorn[standard]
+uvicorn
+python-telegram-bot==20.3
 openai
+feedparser
+apscheduler
