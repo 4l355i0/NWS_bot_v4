@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 python-telegram-bot==20.3
-openai
+openai==0.28.1
 feedparser
 apscheduler
 aiohttp
