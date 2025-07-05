@@ -23,9 +23,9 @@ application.add_handler(CommandHandler("start", start))
 
 @app.on_event("startup")
 async def on_startup():
+    await bot.initialize()                # <-- qui inizializzi il bot
     await application.initialize()
     await application.start()
-    # Imposta webhook
     await bot.delete_webhook()
     await bot.set_webhook(WEBHOOK_URL)
 
@@ -33,6 +33,7 @@ async def on_startup():
 async def on_shutdown():
     await application.stop()
     await application.shutdown()
+    await bot.close()                     # <-- chiudi il bot correttamente
 
 @app.post("/")
 async def telegram_webhook(request: Request):
