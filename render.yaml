@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: telegram-news-bot
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    startCommand: "python rss_gpt_bot.py"
