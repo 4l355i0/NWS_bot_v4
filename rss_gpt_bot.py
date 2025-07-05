@@ -1,27 +1,36 @@
 import logging
-from telegram import Bot, Update
+import os
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
 
-# Configura il logging
-logging.basicConfig(level=logging.INFO)
+# Carica token da variabili ambiente
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Inserisci qui il tuo token bot Telegram e la chiave OpenAI
-TELEGRAM_TOKEN = 'your-telegram-bot-token'
-OPENAI_API_KEY = 'your-openai-api-key'
+# Controllo di sicurezza
+if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
+    raise ValueError("TELEGRAM_TOKEN or OPENAI_API_KEY not set in environment variables")
 
 openai.api_key = OPENAI_API_KEY
 
+# Configura logging
+logging.basicConfig(level=logging.INFO)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ciao! Sono il tuo bot di notizie.")
+    await update.message.reply_text("👋 Ciao! Sono il tuo bot di notizie. Inviami una domanda per ricevere la sintesi con GPT.")
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user","content": user_text}]
-    )
-    reply = response['choices'][0]['message']['content']
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-preview",
+            messages=[{"role": "user", "content": user_text}],
+            max_tokens=300
+        )
+        reply = response['choices'][0]['message']['content']
+    except Exception as e:
+        reply = f"Errore nella chiamata a OpenAI: {str(e)}"
     await update.message.reply_text(reply)
 
 if __name__ == '__main__':
