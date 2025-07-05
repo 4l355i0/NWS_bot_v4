@@ -1,89 +1,99 @@
 import os
 import asyncio
-import logging
-from datetime import datetime
 import feedparser
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram import Bot
-
-logging.basicConfig(level=logging.INFO)
+from fastapi import FastAPI, Request
+from telegram import Update, Bot
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+CHAT_ID = os.getenv("CHAT_ID")  # il tuo telegram user id
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-if not TELEGRAM_TOKEN or not CHAT_ID:
-    raise ValueError("Missing TELEGRAM_TOKEN or CHAT_ID in environment variables.")
+if not TELEGRAM_TOKEN or not CHAT_ID or not WEBHOOK_URL:
+    raise ValueError("Manca TELEGRAM_TOKEN, CHAT_ID o WEBHOOK_URL nelle env variables")
 
+CHAT_ID = int(CHAT_ID)
+
+app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
-USER_ID = int(CHAT_ID)
+application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-# Lista di 40 feed RSS da monitorare
 RSS_FEEDS = [
+    "https://www.repubblica.it/rss/homepage/rss2.0.xml",
+    "https://rss.corriere.it/corriere-it/rss/homepage.xml",
+    "https://www.rainews.it/rss/rainews-it.xml",
+    "https://www.ansa.it/sito/ansait_rss.xml",
+    "https://www.lastampa.it/rss/homepage.xml",
+    "https://www.ilsole24ore.com/rss/rsshome.xml",
+    "https://www.ilfattoquotidiano.it/feed/",
+    "https://www.ilgiornale.it/rss.xml",
+    "https://www.tgcom24.mediaset.it/rss/homepage.xml",
+    "https://www.ilpost.it/feed/",
+    "https://www.huffingtonpost.it/feeds/index.xml",
+    "https://www.adnkronos.com/rss/",
+    "https://www.affaritaliani.it/rss/rss.xml",
+    "https://www.iltempo.it/rss.xml",
+    "https://www.ilmanifesto.it/feed/",
+    "https://www.avvenire.it/rss/feed.xml",
+    "https://www.larepubblica.it/rss/rsshome.xml",
+    "https://www.corriere.it/rss/homepage.xml",
+    "https://www.tuttosport.com/rss/homepage.xml",
+    "https://sport.sky.it/rss",
+    "https://www.gazzetta.it/rss/homepage.xml",
+    "https://www.ilsecoloxix.it/rss.xml",
+    "https://www.ilmessaggero.it/rss.xml",
+    "https://www.ilgiornaleditalia.org/feed/",
+    "https://www.ilriformista.it/feed/",
+    "https://www.ilfattoquotidiano.it/feed/",
+    "https://www.ilfoglio.it/rss",
+    "https://www.liberoquotidiano.it/rss.xml",
+    "https://www.iltempo.it/rss.xml",
+    "https://www.iltempo.it/rss.xml",
+    "https://www.tg24.sky.it/rss",
     "https://www.ilpost.it/feed/",
     "https://www.repubblica.it/rss/homepage/rss2.0.xml",
-    "https://www.corriere.it/rss/homepage.xml",
-    "https://www.ansa.it/sito/ansait_rss.xml",
-    "https://www.ilsole24ore.com/rss/notizie.xml",
-    "https://www.theguardian.com/world/rss",
-    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-    "https://feeds.bbci.co.uk/news/rss.xml",
-    "https://www.wired.com/feed/rss",
-    "https://www.engadget.com/rss.xml",
-    "https://techcrunch.com/feed/",
-    "https://www.sciencedaily.com/rss/top.xml",
-    "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-    "https://www.reutersagency.com/feed/?best-topics=technology",
-    "https://feeds.feedburner.com/oreilly/radar/atom",
-    "https://www.huffpost.com/section/world-news/feed",
-    "https://www.cnbc.com/id/100727362/device/rss/rss.html",
-    "https://feeds.arstechnica.com/arstechnica/index/",
-    "https://feeds.skynews.com/feeds/rss/world.xml",
-    "https://www.aljazeera.com/xml/rss/all.xml",
-    "https://www.forbes.com/investing/feed/",
-    "https://www.bloomberg.com/feed/podcast/etf-report.xml",
-    "https://rss.dw.com/rdf/rss-en-all",
-    "https://feeds.feedburner.com/blogspot/MKuf",
-    "https://www.politico.com/rss/politics08.xml",
-    "https://feeds.feedburner.com/TechCrunch/",
-    "https://www.economist.com/latest/rss.xml",
-    "https://www.scientificamerican.com/rss/news/",
-    "https://www.financialexpress.com/feed/",
-    "https://indianexpress.com/section/world/feed/",
-    "https://www.japantimes.co.jp/feed/",
-    "https://www.globaltimes.cn/rss/world.xml",
-    "https://www.rt.com/rss/news/",
-    "https://abcnews.go.com/abcnews/internationalheadlines",
-    "https://www.vox.com/rss/index.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-    "https://www.cnet.com/rss/news/",
-    "https://rss.app/feeds/JU9JQXn8sN1jVbXf.xml",
-    "https://www.marketwatch.com/rss/topstories",
-    "https://feeds.skynews.com/feeds/rss/business.xml"
+    "https://www.lanuovasardegna.it/rss",
+    "https://www.ilgiornale.it/rss.xml",
+    "https://www.tgcom24.mediaset.it/rss/homepage.xml",
+    "https://www.affaritaliani.it/rss/rss.xml",
 ]
 
-# Memorizza link già inviati per evitare duplicati
-sent_links = set()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Ciao! Ti invierò le news ogni 15 minuti.")
 
-async def fetch_and_send_news():
-    logging.info(f"Controllo RSS in corso alle {datetime.now()}")
-    for feed_url in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:2]:  # Prende solo le ultime 2 notizie per feed
-                if entry.link not in sent_links:
-                    message = f"<b>{entry.title}</b>\n{entry.link}"
-                    await bot.send_message(chat_id=USER_ID, text=message, parse_mode='HTML')
-                    sent_links.add(entry.link)
-        except Exception as e:
-            logging.error(f"Errore durante il fetch dal feed {feed_url}: {e}")
+application.add_handler(CommandHandler("start", start))
 
-async def main():
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(fetch_and_send_news, 'interval', minutes=15)
-    scheduler.start()
-    logging.info("BOT avviato. Invio news ogni 15 minuti.")
+@app.on_event("startup")
+async def startup_event():
+    await bot.delete_webhook()
+    await bot.set_webhook(WEBHOOK_URL)
+    asyncio.create_task(send_news_periodically())
+
+@app.post("/")
+async def telegram_webhook(request: Request):
+    json_data = await request.json()
+    update = Update.de_json(json_data, bot)
+    await application.update_queue.put(update)
+    await application.process_update(update)
+    return {"ok": True}
+
+async def send_news_periodically():
+    await asyncio.sleep(10)  # aspetta un attimo all'avvio
     while True:
-        await asyncio.sleep(3600)
+        try:
+            messages = []
+            for url in RSS_FEEDS:
+                feed = feedparser.parse(url)
+                if feed.entries:
+                    entry = feed.entries[0]
+                    title = entry.get("title", "Nessun titolo")
+                    link = entry.get("link", "")
+                    messages.append(f"<b>{title}</b>\n{link}")
+            if messages:
+                text = "\n\n".join(messages)
+                await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
+        except Exception as e:
+            print(f"Errore durante fetch o invio news: {e}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        await asyncio.sleep(900)  # 15 minuti
+
