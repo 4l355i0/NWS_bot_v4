@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import openai
+import asyncio
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -21,6 +22,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
+@app.on_event("startup")
+async def on_startup():
+    # Imposta il webhook a ogni avvio
+    await bot.delete_webhook()
+    await bot.set_webhook(WEBHOOK_URL)
+
 @app.post("/")
 async def telegram_webhook(request: Request):
     json_data = await request.json()
@@ -28,5 +35,3 @@ async def telegram_webhook(request: Request):
     await application.update_queue.put(update)
     await application.process_update(update)
     return {"ok": True}
-
-# (Aggiungi qui altre funzioni/handler per le news, GPT, ecc.)
