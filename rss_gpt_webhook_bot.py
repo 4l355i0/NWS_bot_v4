@@ -1,62 +1,89 @@
 import os
 import asyncio
-import feedparser
-import openai
-from fastapi import FastAPI
-from telegram import Bot
+import logging
 from datetime import datetime
+import feedparser
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import Bot
+
+logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-USER_ID = os.getenv("CHAT_ID")
+CHAT_ID = os.getenv("CHAT_ID")
 
-if not TELEGRAM_TOKEN or not OPENAI_API_KEY or not USER_ID:
-    raise ValueError("Missing TELEGRAM_TOKEN, OPENAI_API_KEY, or CHAT_ID in environment variables.")
+if not TELEGRAM_TOKEN or not CHAT_ID:
+    raise ValueError("Missing TELEGRAM_TOKEN or CHAT_ID in environment variables.")
 
-openai.api_key = OPENAI_API_KEY
 bot = Bot(token=TELEGRAM_TOKEN)
-app = FastAPI()
+USER_ID = int(CHAT_ID)
 
+# Lista di 40 feed RSS da monitorare
 RSS_FEEDS = [
-    "https://www.ilfattoquotidiano.it/feed/",
+    "https://www.ilpost.it/feed/",
     "https://www.repubblica.it/rss/homepage/rss2.0.xml",
     "https://www.corriere.it/rss/homepage.xml",
-    "https://www.bbc.co.uk/news/10628494",
-    "https://rss.cnn.com/rss/edition.rss",
+    "https://www.ansa.it/sito/ansait_rss.xml",
+    "https://www.ilsole24ore.com/rss/notizie.xml",
+    "https://www.theguardian.com/world/rss",
+    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://feeds.bbci.co.uk/news/rss.xml",
+    "https://www.wired.com/feed/rss",
+    "https://www.engadget.com/rss.xml",
+    "https://techcrunch.com/feed/",
+    "https://www.sciencedaily.com/rss/top.xml",
+    "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+    "https://www.reutersagency.com/feed/?best-topics=technology",
+    "https://feeds.feedburner.com/oreilly/radar/atom",
+    "https://www.huffpost.com/section/world-news/feed",
+    "https://www.cnbc.com/id/100727362/device/rss/rss.html",
+    "https://feeds.arstechnica.com/arstechnica/index/",
+    "https://feeds.skynews.com/feeds/rss/world.xml",
+    "https://www.aljazeera.com/xml/rss/all.xml",
+    "https://www.forbes.com/investing/feed/",
+    "https://www.bloomberg.com/feed/podcast/etf-report.xml",
+    "https://rss.dw.com/rdf/rss-en-all",
+    "https://feeds.feedburner.com/blogspot/MKuf",
+    "https://www.politico.com/rss/politics08.xml",
+    "https://feeds.feedburner.com/TechCrunch/",
+    "https://www.economist.com/latest/rss.xml",
+    "https://www.scientificamerican.com/rss/news/",
+    "https://www.financialexpress.com/feed/",
+    "https://indianexpress.com/section/world/feed/",
+    "https://www.japantimes.co.jp/feed/",
+    "https://www.globaltimes.cn/rss/world.xml",
+    "https://www.rt.com/rss/news/",
+    "https://abcnews.go.com/abcnews/internationalheadlines",
+    "https://www.vox.com/rss/index.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+    "https://www.cnet.com/rss/news/",
+    "https://rss.app/feeds/JU9JQXn8sN1jVbXf.xml",
+    "https://www.marketwatch.com/rss/topstories",
+    "https://feeds.skynews.com/feeds/rss/business.xml"
 ]
 
-async def fetch_and_summarize():
-    all_entries = []
-    for url in RSS_FEEDS:
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:3]:
-            all_entries.append(f"{entry.title}\n{entry.link}")
-    
-    news_text = "\n\n".join(all_entries)
-    
-    completion = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "Sintetizza in italiano le seguenti notizie in modo chiaro e conciso."},
-            {"role": "user", "content": news_text}
-        ]
-    )
-    summary = completion.choices[0].message.content
-    await bot.send_message(chat_id=USER_ID, text=f"📰 Sintesi notizie:\n\n{summary}", parse_mode='HTML')
+# Memorizza link già inviati per evitare duplicati
+sent_links = set()
 
-async def periodic_task():
-    while True:
+async def fetch_and_send_news():
+    logging.info(f"Controllo RSS in corso alle {datetime.now()}")
+    for feed_url in RSS_FEEDS:
         try:
-            await fetch_and_summarize()
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:2]:  # Prende solo le ultime 2 notizie per feed
+                if entry.link not in sent_links:
+                    message = f"<b>{entry.title}</b>\n{entry.link}"
+                    await bot.send_message(chat_id=USER_ID, text=message, parse_mode='HTML')
+                    sent_links.add(entry.link)
         except Exception as e:
-            await bot.send_message(chat_id=USER_ID, text=f"Errore durante il fetch: {e}")
-        await asyncio.sleep(900)  # 15 minuti
+            logging.error(f"Errore durante il fetch dal feed {feed_url}: {e}")
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(periodic_task())
-    await bot.send_message(chat_id=USER_ID, text="🤖 BOT avviato: ti invierò news ogni 15 minuti.")
+async def main():
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(fetch_and_send_news, 'interval', minutes=15)
+    scheduler.start()
+    logging.info("BOT avviato. Invio news ogni 15 minuti.")
+    while True:
+        await asyncio.sleep(3600)
 
-@app.get("/")
-def home():
-    return {"status": "OK", "message": "Bot RSS-GPT attivo."}
+if __name__ == "__main__":
+    asyncio.run(main())
