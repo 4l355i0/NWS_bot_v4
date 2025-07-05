@@ -35,7 +35,7 @@ async def fetch_and_summarize():
     news_text = "\n\n".join(all_entries)
     
     completion = openai.ChatCompletion.create(
-        model="gpt-4o-preview",
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "Sintetizza in italiano le seguenti notizie in modo chiaro e conciso."},
             {"role": "user", "content": news_text}
