@@ -51,16 +51,15 @@ async def send_news_periodically():
             new_links = set()
             for url in RSS_URLS:
                 feed = feedparser.parse(url)
-                if feed.entries:
-                    # Prendi le prime 3 entries per feed
-                    for entry in feed.entries[:3]:
-                        title = entry.get("title", "Nessun titolo")
-                        link = entry.get("link", "")
-                        if link and link not in sent_links:
-                            messages.append(f"<b>{title}</b>\n{link}")
-                            new_links.add(link)
+                for entry in feed.entries:
+                    title = entry.get("title", "Nessun titolo")
+                    link = entry.get("link", "")
+                    if link and link not in sent_links:
+                        messages.append(f"<b>{title}</b>\n{link}")
+                        new_links.add(link)
 
             if messages:
+                # Se è troppo lungo, puoi spezzare in più messaggi, oppure limitare le news qui
                 text = "\n\n".join(messages)
                 await send_message_chunks(text)
                 sent_links.update(new_links)
