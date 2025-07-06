@@ -1,13 +1,13 @@
 import os
 import asyncio
+import aiohttp
 import feedparser
-import pickle
-import time
 from fastapi import FastAPI, Request
 from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder
+from telegram.ext import ApplicationBuilder, ContextTypes
 
-# ====== CONFIG =======
+seen_links = set()
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -16,9 +16,9 @@ if not TELEGRAM_TOKEN or not CHAT_ID or not WEBHOOK_URL:
     raise ValueError("Manca TELEGRAM_TOKEN, CHAT_ID o WEBHOOK_URL nelle env variables")
 
 CHAT_ID = int(CHAT_ID)
-bot = Bot(token=TELEGRAM_TOKEN)
 
 app = FastAPI()
+bot = Bot(token=TELEGRAM_TOKEN)
 application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 RSS_URLS = [
@@ -102,50 +102,43 @@ RSS_URLS = [
     "https://www.popmatters.com/feed/",
     "https://www.spin.com/feed/",
     "https://www.factmag.com/feed/",
+    # aggiungi altri RSS qui
 ]
 
-SEEN_LINKS_FILE = "seen_links.pkl"
-try:
-    with open(SEEN_LINKS_FILE, "rb") as f:
-        seen_links = pickle.load(f)
-except FileNotFoundError:
-    seen_links = set()
+async def fetch_feed(session, url):
+    try:
+        async with session.get(url, timeout=20) as response:
+            content = await response.read()
+            feed = feedparser.parse(content)
+            return feed.entries
+    except Exception as e:
+        print(f"Errore fetch {url}: {e}")
+        return []
 
-# ====== FUNZIONE DI INVIO =======
 async def send_news_periodically():
-    await asyncio.sleep(10)
+    await asyncio.sleep(10)  # attesa avvio
     while True:
         try:
-            now = time.time()
-            new_messages = []
+            messages = []
+            async with aiohttp.ClientSession() as session:
+                tasks = [fetch_feed(session, url) for url in RSS_URLS]
+                results = await asyncio.gather(*tasks)
 
-            for url in RSS_URLS:
-                feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    link = entry.get("link", "")
-                    title = entry.get("title", "Nessun titolo")
-                    published = entry.get("published_parsed")
+                for entries in results:
+                    for entry in entries:
+                        link = entry.get("link", "")
+                        if link and link not in seen_links:
+                            seen_links.add(link)
+                            title = entry.get("title", "Nessun titolo")
+                            messages.append(f"<b>{title}</b>\n{link}")
 
-                    if link and link not in seen_links:
-                        if published:
-                            published_time = time.mktime(published)
-                            if now - published_time > 60 * 60 * 24:  # ignoriamo articoli più vecchi di 24h
-                                continue
-                        seen_links.add(link)
-                        new_messages.append(f"<b>{title}</b>\n{link}")
-
-            # Salva lo stato dei link visti
-            with open(SEEN_LINKS_FILE, "wb") as f:
-                pickle.dump(seen_links, f)
-
-            # Invio in blocchi gestendo lunghezza massima
-            if new_messages:
+            if messages:
                 chunk = []
                 chunk_len = 0
-                for msg in new_messages:
+                for msg in messages:
                     if chunk_len + len(msg) + 2 > 4000:
                         text = "\n\n".join(chunk)
-                        await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML", disable_web_page_preview=True)
+                        await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
                         chunk = [msg]
                         chunk_len = len(msg) + 2
                     else:
@@ -153,12 +146,16 @@ async def send_news_periodically():
                         chunk_len += len(msg) + 2
                 if chunk:
                     text = "\n\n".join(chunk)
-                    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML", disable_web_page_preview=True)
+                    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
+                print(f"Inviate {len(messages)} notizie nuove.")
+            else:
+                print("Nessuna nuova notizia trovata.")
 
         except Exception as e:
-            await bot.send_message(chat_id=CHAT_ID, text=f"Errore fetch news: {e}")
+            print(f"Errore generale durante fetch o invio news: {e}")
+            await bot.send_message(chat_id=CHAT_ID, text=f"Errore durante fetch o invio news: {e}")
 
-        await asyncio.sleep(900)  # ogni 15 minuti
+        await asyncio.sleep(900)  # 15 minuti
 
 @app.on_event("startup")
 async def startup_event():
@@ -175,4 +172,5 @@ async def telegram_webhook(request: Request):
     await application.update_queue.put(update)
     await application.process_update(update)
     return {"ok": True}
+
 
