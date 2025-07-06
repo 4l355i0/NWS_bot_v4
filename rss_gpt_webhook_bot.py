@@ -1,15 +1,18 @@
 import os
 import asyncio
+import feedparser
 from fastapi import FastAPI, Request
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import feedparser
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-USER_ID = int(os.getenv("CHAT_ID"))
+CHAT_ID = os.getenv("CHAT_ID")  # il tuo telegram user id
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-if not TELEGRAM_TOKEN or not USER_ID:
-    raise ValueError("TELEGRAM_TOKEN or CHAT_ID non settati")
+if not TELEGRAM_TOKEN or not CHAT_ID or not WEBHOOK_URL:
+    raise ValueError("Manca TELEGRAM_TOKEN, CHAT_ID o WEBHOOK_URL nelle env variables")
+
+CHAT_ID = int(CHAT_ID)
 
 app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -99,59 +102,16 @@ RSS_URLS = [
     # aggiungi altri RSS qui
 ]
 
-
-sent_articles = set()
-
-async def send_news():
-    while True:
-        print("Controllo feed RSS...")
-        new_messages = []
-        for url in RSS_URLS:
-            try:
-                feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    unique_id = entry.get('id') or entry.get('link')
-                    if unique_id and unique_id not in sent_articles:
-                        sent_articles.add(unique_id)
-                        title = entry.get('title', 'No Title')
-                        link = entry.get('link', '')
-                        new_messages.append(f"<b>{title}</b>\n{link}")
-            except Exception as e:
-                print(f"Errore durante il parsing del feed {url}: {e}")
-
-        if new_messages:
-            news_text = "\n\n".join(new_messages)
-            try:
-                # Suddivisione in chunk di max 4000 caratteri
-                max_length = 4000
-                parts = [news_text[i:i+max_length] for i in range(0, len(news_text), max_length)]
-                for idx, part in enumerate(parts):
-                    await bot.send_message(chat_id=USER_ID, text=part, parse_mode='HTML')
-                    print(f"Inviato chunk {idx + 1}/{len(parts)}")
-                print(f"Inviati {len(new_messages)} nuovi articoli.")
-            except Exception as e:
-                print(f"Errore invio news: {e}")
-        else:
-            print("Nessun nuovo articolo trovato.")
-            try:
-                await bot.send_message(chat_id=USER_ID, text="Controllo fatto: nessun nuovo articolo da inviare.")
-            except Exception as e:
-                print(f"Errore invio messaggio di check: {e}")
-
-        await asyncio.sleep(15 * 60)  # 15 minuti
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ciao! Sono il tuo bot GPT per le news.")
+    await update.message.reply_text("Ciao! Ti invierò le news ogni 15 minuti.")
 
 application.add_handler(CommandHandler("start", start))
 
 @app.on_event("startup")
-async def on_startup():
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    await bot.send_message(chat_id=USER_ID, text="BOT avviato e pronto a mandarti notizie ogni 15 minuti")
-    asyncio.create_task(send_news())
+async def startup_event():
+    await bot.delete_webhook()
+    await bot.set_webhook(WEBHOOK_URL)
+    asyncio.create_task(send_news_periodically())
 
 @app.post("/")
 async def telegram_webhook(request: Request):
@@ -161,4 +121,40 @@ async def telegram_webhook(request: Request):
     await application.process_update(update)
     return {"ok": True}
 
- 
+async def send_news_periodically():
+    await asyncio.sleep(10)  # aspetta un attimo all'avvio
+    while True:
+        try:
+            messages = []
+            for url in RSS_URLS:
+                feed = feedparser.parse(url)
+                if feed.entries:
+                    entry = feed.entries[0]
+                    title = entry.get("title", "Nessun titolo")
+                    link = entry.get("link", "")
+                    messages.append(f"<b>{title}</b>\n{link}")
+
+            if messages:
+                text = "\n\n".join(messages)
+                max_length = 4000
+                parts = []
+                start = 0
+                while start < len(text):
+                    end = start + max_length
+                    if end >= len(text):
+                        parts.append(text[start:])
+                        break
+                    else:
+                        last_break = text.rfind("\n\n", start, end)
+                        if last_break == -1 or last_break <= start:
+                            last_break = end
+                        parts.append(text[start:last_break])
+                        start = last_break
+
+                for part in parts:
+                    await bot.send_message(chat_id=CHAT_ID, text=part, parse_mode="HTML")
+
+        except Exception as e:
+            print(f"Errore durante fetch o invio news: {e}")
+
+        await asyncio.sleep(900)  # 15 minuti
