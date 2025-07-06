@@ -6,7 +6,7 @@ from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")  # il tuo telegram user id
+CHAT_ID = os.getenv("CHAT_ID")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 if not TELEGRAM_TOKEN or not CHAT_ID or not WEBHOOK_URL:
@@ -102,7 +102,8 @@ RSS_URLS = [
     # aggiungi altri RSS qui
 ]
 
-sent_articles = set()
+# Per gestire duplicati
+sent_links = set()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ciao! Ti invierò le news ogni 15 minuti.")
@@ -124,43 +125,36 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 async def send_news_periodically():
-    await asyncio.sleep(10)  # aspetta un attimo all'avvio
+    await asyncio.sleep(10)  # Attesa breve all'avvio
+    global sent_links
+
     while True:
         try:
-            new_messages = []
-            for url in RSS_URLS:
+            messages = []
+            for url in RSS_FEEDS:
                 feed = feedparser.parse(url)
-                for entry in feed.entries:
-                    unique_id = entry.get('id') or entry.get('link')
-                    if unique_id and unique_id not in sent_articles:
-                        sent_articles.add(unique_id)
-                        title = entry.get("title", "Nessun titolo")
-                        link = entry.get("link", "")
-                        new_messages.append(f"<b>{title}</b>\n{link}")
+                if feed.entries:
+                    entry = feed.entries[0]
+                    title = entry.get("title", "Nessun titolo")
+                    link = entry.get("link", "")
 
-            if new_messages:
-                text = "\n\n".join(new_messages)
-                max_length = 4000
-                parts = []
-                start = 0
-                while start < len(text):
-                    end = start + max_length
-                    if end >= len(text):
-                        parts.append(text[start:])
-                        break
-                    else:
-                        last_break = text.rfind("\n\n", start, end)
-                        if last_break == -1 or last_break <= start:
-                            last_break = end
-                        parts.append(text[start:last_break])
-                        start = last_break
+                    # Evita duplicati
+                    if link not in sent_links:
+                        sent_links.add(link)
+                        # Limita la lunghezza del titolo per sicurezza
+                        title = (title[:200] + "...") if len(title) > 200 else title
+                        messages.append(f"<b>{title}</b>\n{link}")
 
-                for part in parts:
-                    await bot.send_message(chat_id=CHAT_ID, text=part, parse_mode="HTML")
+            if messages:
+                # Divide in blocchi se supera 4096 caratteri
+                text = "\n\n".join(messages)
+                chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                for chunk in chunks:
+                    await bot.send_message(chat_id=CHAT_ID, text=chunk, parse_mode="HTML")
             else:
-                print("Nessun nuovo articolo da inviare.")
+                print("Nessuna nuova notizia trovata.")
 
         except Exception as e:
             print(f"Errore durante fetch o invio news: {e}")
 
-        await asyncio.sleep(60)  # 15 minuti
+        await asyncio.sleep(900)  # 15 minuti
