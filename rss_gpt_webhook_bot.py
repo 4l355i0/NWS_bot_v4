@@ -44,7 +44,7 @@ async def send_message_chunks(text: str):
         await asyncio.sleep(0.5)  # piccolo delay per sicurezza
 
 async def send_news_periodically():
-    await asyncio.sleep(10)  # aspetta avvio
+    await asyncio.sleep(10)
     while True:
         try:
             messages = []
@@ -52,12 +52,13 @@ async def send_news_periodically():
             for url in RSS_URLS:
                 feed = feedparser.parse(url)
                 if feed.entries:
-                    entry = feed.entries[0]
-                    title = entry.get("title", "Nessun titolo")
-                    link = entry.get("link", "")
-                    if link and link not in sent_links:
-                        messages.append(f"<b>{title}</b>\n{link}")
-                        new_links.add(link)
+                    # Prendi le prime 3 entries per feed
+                    for entry in feed.entries[:3]:
+                        title = entry.get("title", "Nessun titolo")
+                        link = entry.get("link", "")
+                        if link and link not in sent_links:
+                            messages.append(f"<b>{title}</b>\n{link}")
+                            new_links.add(link)
 
             if messages:
                 text = "\n\n".join(messages)
@@ -71,7 +72,7 @@ async def send_news_periodically():
             print(error_msg)
             await bot.send_message(chat_id=CHAT_ID, text=error_msg)
 
-        await asyncio.sleep(900)  # 15 minuti
+        await asyncio.sleep(900)
 
 @app.on_event("startup")
 async def startup_event():
