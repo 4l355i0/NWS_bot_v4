@@ -163,4 +163,4 @@ async def send_news_periodically():
         except Exception as e:
             print(f"Errore durante fetch o invio news: {e}")
 
-        await asyncio.sleep(900)  # 15 minuti
+        await asyncio.sleep(60)  # 15 minuti
