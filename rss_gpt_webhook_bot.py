@@ -99,6 +99,7 @@ RSS_URLS = [
     # aggiungi altri RSS qui
 ]
 
+
 sent_articles = set()
 
 async def send_news():
@@ -144,15 +145,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 application.add_handler(CommandHandler("start", start))
 
-
 @app.on_event("startup")
 async def on_startup():
     await application.initialize()
     await application.start()
-    await bot.delete_webhook()
-    await bot.set_webhook(WEBHOOK_URL)
-    await bot.send_message(chat_id=USER_ID, text="BOT avviato e pronto a mandarti notizie")
+    await application.updater.start_polling()
+    await bot.send_message(chat_id=USER_ID, text="BOT avviato e pronto a mandarti notizie ogni 15 minuti")
     asyncio.create_task(send_news())
+
 @app.post("/")
 async def telegram_webhook(request: Request):
     json_data = await request.json()
@@ -160,3 +160,5 @@ async def telegram_webhook(request: Request):
     await application.update_queue.put(update)
     await application.process_update(update)
     return {"ok": True}
+
+ 
