@@ -5,6 +5,8 @@ from fastapi import FastAPI, Request
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, ContextTypes
 
+seen_links = set()
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -26,7 +28,6 @@ RSS_URLS = [
 ]
 
 # Per evitare duplicati, teniamo un set in memoria
-sent_links = set()
 
 async def send_news_periodically():
     await asyncio.sleep(10)  # attesa all'avvio
