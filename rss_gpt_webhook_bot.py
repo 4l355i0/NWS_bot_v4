@@ -75,6 +75,8 @@ async def send_news_periodically():
 
 @app.on_event("startup")
 async def startup_event():
+    await application.initialize()
+    await application.start()
     await bot.delete_webhook()
     await bot.set_webhook(WEBHOOK_URL)
     asyncio.create_task(send_news_periodically())
