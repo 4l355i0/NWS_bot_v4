@@ -102,6 +102,8 @@ RSS_URLS = [
     # aggiungi altri RSS qui
 ]
 
+sent_articles = set()
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ciao! Ti invierò le news ogni 15 minuti.")
 
@@ -125,17 +127,19 @@ async def send_news_periodically():
     await asyncio.sleep(10)  # aspetta un attimo all'avvio
     while True:
         try:
-            messages = []
+            new_messages = []
             for url in RSS_URLS:
                 feed = feedparser.parse(url)
-                if feed.entries:
-                    entry = feed.entries[0]
-                    title = entry.get("title", "Nessun titolo")
-                    link = entry.get("link", "")
-                    messages.append(f"<b>{title}</b>\n{link}")
+                for entry in feed.entries:
+                    unique_id = entry.get('id') or entry.get('link')
+                    if unique_id and unique_id not in sent_articles:
+                        sent_articles.add(unique_id)
+                        title = entry.get("title", "Nessun titolo")
+                        link = entry.get("link", "")
+                        new_messages.append(f"<b>{title}</b>\n{link}")
 
-            if messages:
-                text = "\n\n".join(messages)
+            if new_messages:
+                text = "\n\n".join(new_messages)
                 max_length = 4000
                 parts = []
                 start = 0
@@ -153,6 +157,8 @@ async def send_news_periodically():
 
                 for part in parts:
                     await bot.send_message(chat_id=CHAT_ID, text=part, parse_mode="HTML")
+            else:
+                print("Nessun nuovo articolo da inviare.")
 
         except Exception as e:
             print(f"Errore durante fetch o invio news: {e}")
