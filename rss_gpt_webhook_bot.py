@@ -28,50 +28,41 @@ RSS_URLS = [
 # Per evitare duplicati, teniamo un set in memoria
 sent_links = set()
 
-async def send_message_chunks(text: str):
-    MAX_LEN = 4000  # un po' sotto i 4096 per sicurezza
-    chunks = []
-    while text:
-        chunk = text[:MAX_LEN]
-        # Cerca di non spezzare nel mezzo di un link o parola
-        last_newline = chunk.rfind('\n')
-        if last_newline > 100:
-            chunk = chunk[:last_newline]
-        chunks.append(chunk)
-        text = text[len(chunk):]
-    for chunk in chunks:
-        await bot.send_message(chat_id=CHAT_ID, text=chunk, parse_mode="HTML")
-        await asyncio.sleep(0.5)  # piccolo delay per sicurezza
-
 async def send_news_periodically():
-    await asyncio.sleep(10)
+    await asyncio.sleep(10)  # attesa all'avvio
     while True:
         try:
             messages = []
-            new_links = set()
             for url in RSS_URLS:
                 feed = feedparser.parse(url)
                 for entry in feed.entries:
-                    title = entry.get("title", "Nessun titolo")
                     link = entry.get("link", "")
-                    if link and link not in sent_links:
+                    if link and link not in seen_links:
+                        seen_links.add(link)
+                        title = entry.get("title", "Nessun titolo")
                         messages.append(f"<b>{title}</b>\n{link}")
-                        new_links.add(link)
-
+            
+            # Dividi messaggi troppo lunghi (Telegram max 4096 char)
             if messages:
-                # Se è troppo lungo, puoi spezzare in più messaggi, oppure limitare le news qui
-                text = "\n\n".join(messages)
-                await send_message_chunks(text)
-                sent_links.update(new_links)
-            else:
-                await bot.send_message(chat_id=CHAT_ID, text="Nessuna news nuove da inviare.")
+                chunk = []
+                chunk_len = 0
+                for msg in messages:
+                    if chunk_len + len(msg) + 2 > 4000:  # buffer per sicurezza
+                        text = "\n\n".join(chunk)
+                        await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
+                        chunk = [msg]
+                        chunk_len = len(msg) + 2
+                    else:
+                        chunk.append(msg)
+                        chunk_len += len(msg) + 2
+                if chunk:
+                    text = "\n\n".join(chunk)
+                    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
 
         except Exception as e:
-            error_msg = f"Errore durante fetch o invio news: {e}"
-            print(error_msg)
-            await bot.send_message(chat_id=CHAT_ID, text=error_msg)
+            await bot.send_message(chat_id=CHAT_ID, text=f"Errore durante fetch o invio news: {e}")
 
-        await asyncio.sleep(900)
+        await asyncio.sleep(900)  # 15 minuti
 
 @app.on_event("startup")
 async def startup_event():
