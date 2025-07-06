@@ -56,7 +56,12 @@ async def send_news():
         if new_messages:
             news_text = "\n\n".join(new_messages)
             try:
-                await bot.send_message(chat_id=USER_ID, text=news_text, parse_mode='HTML')
+                # Suddivisione in chunk di max 4000 caratteri
+                max_length = 4000
+                parts = [news_text[i:i+max_length] for i in range(0, len(news_text), max_length)]
+                for idx, part in enumerate(parts):
+                    await bot.send_message(chat_id=USER_ID, text=part, parse_mode='HTML')
+                    print(f"Inviato chunk {idx + 1}/{len(parts)}")
                 print(f"Inviati {len(new_messages)} nuovi articoli.")
             except Exception as e:
                 print(f"Errore invio news: {e}")
@@ -89,5 +94,3 @@ async def telegram_webhook(request: Request):
     await application.update_queue.put(update)
     await application.process_update(update)
     return {"ok": True}
-
-
