@@ -20,7 +20,8 @@ app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
- "https://www.repubblica.it/rss/homepage/rss2.0.xml",
+RSS_URLS = [
+    "https://www.repubblica.it/rss/homepage/rss2.0.xml",
     "https://www.ansa.it/sito/ansait_rss.xml",
     "https://www.corriere.it/rss/homepage.xml",
     "https://www.lastampa.it/rss.xml",
