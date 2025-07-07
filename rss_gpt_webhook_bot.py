@@ -35,7 +35,10 @@ RSS_URLS = [
     "https://www.repubblica.it/rss/homepage/rss2.0.xml",
     "https://www.ansa.it/sito/ansait_rss.xml",
     "https://www.corriere.it/rss/homepage.xml",
-    # altri...
+    "https://www.ilfattoquotidiano.it/feed/",
+    "https://www.gazzetta.it/rss/home.xml",
+    "https://www.cyclingnews.com/rss/news/",
+    "https://www.velonews.com/feed/"
 ]
 
 async def send_news_periodically():
