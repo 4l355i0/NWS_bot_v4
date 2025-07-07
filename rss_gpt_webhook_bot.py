@@ -1,12 +1,21 @@
 import os
 import asyncio
-import aiohttp
 import feedparser
 from fastapi import FastAPI, Request
 from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, ContextTypes
+from telegram.ext import ApplicationBuilder
+import json
+import time
+from datetime import datetime, timedelta
 
-seen_links = set()
+seen_links_file = "seen_links.json"
+
+# Carica seen_links da file se esiste
+if os.path.exists(seen_links_file):
+    with open(seen_links_file, "r") as f:
+        seen_links = set(json.load(f))
+else:
+    seen_links = set()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -21,53 +30,50 @@ app = FastAPI()
 bot = Bot(token=TELEGRAM_TOKEN)
 application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+# i tuoi RSS qui
 RSS_URLS = [
     "https://www.repubblica.it/rss/homepage/rss2.0.xml",
     "https://www.ansa.it/sito/ansait_rss.xml",
-    "https://www.ilmessaggero.it/rss/home.xml",
-    "https://www.ilfattoquotidiano.it/feed/",
-    "https://www.gazzetta.it/rss/home.xml",
-    "https://www.ilsole24ore.com/rss/feed/sport.xml",
-    "https://www.skysports.com/rss/12040",
-    "https://www.cyclingnews.com/rss/news/",
-    "https://www.velonews.com/feed/",
-    "https://www.bikeradar.com/rss/news.xml",
-    "https://aviationweek.com/rss.xml",
-    "https://simpleflying.com/feed/",
-    "https://www.flightglobal.com/feeds/rss",
-    "https://rsshub.app/youtube/channel/UC_A--fhX5gea0i4UtpD99Gg",
-    "https://rsshub.app/youtube/channel/UC-r_56iJkAF0nIeX-5dleRQ",
-    
-    # aggiungi altri RSS qui
+    "https://www.corriere.it/rss/homepage.xml",
+    # altri...
 ]
 
-async def fetch_feed(session, url):
-    try:
-        async with session.get(url, timeout=20) as response:
-            content = await response.read()
-            feed = feedparser.parse(content)
-            return feed.entries
-    except Exception as e:
-        print(f"Errore fetch {url}: {e}")
-        return []
-
 async def send_news_periodically():
-    await asyncio.sleep(10)  # attesa avvio
+    await asyncio.sleep(10)
     while True:
         try:
             messages = []
-            async with aiohttp.ClientSession() as session:
-                tasks = [fetch_feed(session, url) for url in RSS_URLS]
-                results = await asyncio.gather(*tasks)
+            now = datetime.utcnow()
+            yesterday = now - timedelta(days=1)
+            new_links = set()
 
-                for entries in results:
-                    for entry in entries:
-                        link = entry.get("link", "")
-                        if link and link not in seen_links:
-                            seen_links.add(link)
-                            title = entry.get("title", "Nessun titolo")
-                            messages.append(f"<b>{title}</b>\n{link}")
+            for url in RSS_URLS:
+                feed = feedparser.parse(url)
+                for entry in feed.entries:
+                    link = entry.get("link", "")
+                    if not link or link in seen_links:
+                        continue
 
+                    # Controlla data pubblicazione
+                    published = None
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        published = datetime.fromtimestamp(time.mktime(entry.published_parsed))
+                    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+                        published = datetime.fromtimestamp(time.mktime(entry.updated_parsed))
+                    
+                    if published is None or published < yesterday:
+                        continue
+
+                    title = entry.get("title", "Nessun titolo")
+                    messages.append(f"<b>{title}</b>\n{link}")
+                    new_links.add(link)
+
+            # Salva i nuovi link per persistenza
+            seen_links.update(new_links)
+            with open(seen_links_file, "w") as f:
+                json.dump(list(seen_links), f)
+
+            # Invio messaggi
             if messages:
                 chunk = []
                 chunk_len = 0
@@ -83,15 +89,17 @@ async def send_news_periodically():
                 if chunk:
                     text = "\n\n".join(chunk)
                     await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
-                print(f"Inviate {len(messages)} notizie nuove.")
+
+                # Log per debug
+                await bot.send_message(chat_id=CHAT_ID, text=f"✅ Inviate {len(messages)} notizie.")
+
             else:
-                print("Nessuna nuova notizia trovata.")
+                await bot.send_message(chat_id=CHAT_ID, text="Nessuna nuova notizia nelle ultime 24h.")
 
         except Exception as e:
-            print(f"Errore generale durante fetch o invio news: {e}")
             await bot.send_message(chat_id=CHAT_ID, text=f"Errore durante fetch o invio news: {e}")
 
-        await asyncio.sleep(900)  # 15 minuti
+        await asyncio.sleep(900)  # 15 min
 
 @app.on_event("startup")
 async def startup_event():
